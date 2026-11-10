@@ -1,0 +1,106 @@
+name: StudyVault quality
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: studyvault-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    outputs:
+      production: ${{ steps.review.outputs.production }}
+      preview: ${{ steps.review.outputs.preview }}
+    env:
+      VITE_GOOGLE_CLIENT_ID: ${{ github.ref == 'refs/heads/main' && vars.VITE_GOOGLE_CLIENT_ID_PRODUCTION || (github.ref == 'refs/heads/preview' && vars.VITE_GOOGLE_CLIENT_ID_PREVIEW) || '' }}
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Retrieve previous quality report
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_BRANCH: ${{ github.event_name == 'push' && github.ref_name || github.base_ref }}
+        run: |
+          mkdir -p quality/.work/baseline
+          for run in $(gh run list --workflow quality.yml --branch "$BASE_BRANCH" --event push --status completed \
+            --limit 5 --json databaseId --jq '.[].databaseId'); do
+            if gh run download "$run" --name studyvault-quality --dir quality/.work/baseline &&
+              test -f quality/.work/baseline/latest.json && test -f quality/.work/baseline/latest.md; then
+              cp quality/.work/baseline/latest.{json,md} quality/
+              if test -d quality/.work/baseline/history; then
+                cp -r quality/.work/baseline/history quality/
+              fi
+              break
+            fi
+          done
+      - name: Run checks and generate the report
+        id: review
+        run: npm run quality
+      - name: Upload quality dashboard, report and history
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: studyvault-quality
+          path: |
+            quality/latest.json
+            quality/latest.md
+            quality/dashboard/
+            quality/history/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Save the tested deployment files
+        if: >-
+          success() && github.event_name == 'push' && vars.CLOUDFLARE_PAGES_PROJECT != '' &&
+          ((github.ref == 'refs/heads/main' && steps.review.outputs.production == 'true') ||
+           (github.ref == 'refs/heads/preview' && steps.review.outputs.preview == 'true'))
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: studyvault-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy:
+    needs: quality
+    if: >-
+      needs.quality.result == 'success' && github.event_name == 'push' && vars.CLOUDFLARE_PAGES_PROJECT != '' &&
+      ((github.ref == 'refs/heads/main' && needs.quality.outputs.production == 'true') ||
+       (github.ref == 'refs/heads/preview' && needs.quality.outputs.preview == 'true'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-audit
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: studyvault-dist
+          path: dist/
+      - name: Publish the tested static build
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+          WRANGLER_SEND_METRICS: 'false'
+        run: npm exec -- wrangler pages deploy dist --project-name "$PAGES_PROJECT" --branch "$GITHUB_REF_NAME" --commit-hash "$GITHUB_SHA"

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.npm-cache/
+.env*
+!.env.example
+quality/latest.json
+quality/latest.md
+quality/dashboard/
+quality/history/*.json
+quality/history/*.md
+quality/.work/
+coverage/
+playwright-report/
+test-results/
+.wrangler/

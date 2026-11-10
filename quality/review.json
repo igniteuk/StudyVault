@@ -1,0 +1,174 @@
+{
+  "milestone": "Initial local-first revision PWA and gated deployment",
+  "sourceDigest": "46cad77a64db8111b87c971f25e728bc5c3cdd24ca1f3877acd5d4953bc0bc3c",
+  "date": "2026-11-10",
+  "reviewers": {
+    "UI/UX Reviewer": {
+      "status": "pass",
+      "date": "2026-11-10",
+      "evidence": "Reviewed onboarding, editor contrast, accessible form controls and answer focus. Rechecked source fixes and six passing Chromium browser cases. Responsive checks use 1280, 390 and 320 px widths."
+    },
+    "QA Reviewer": {
+      "status": "pass",
+      "date": "2026-11-10",
+      "evidence": "Independently reproduced the import-boundary and missing-test release bugs. Verified the scheduler limit, clock-skew handling, required test tags and canonical cache URLs. The browser suite exercises CRUD, review, offline writes and local backups."
+    },
+    "Security Reviewer": {
+      "status": "pass",
+      "date": "2026-11-10",
+      "verdict": "pass",
+      "evidence": "Inspected the least-privilege Drive scope, in-memory credentials, opt-in transfers, backup validation, CSP, service-worker cache boundary and isolated deploy job. Rechecked transport retry and release-gate fixes. External account configuration remains to be verified."
+    },
+    "Performance Reviewer": {
+      "status": "pass",
+      "date": "2026-11-10",
+      "evidence": "Rechecked memoized subject grouping, session-scoped Drive version receipts and canonical precache entries. Independently measured 107,534 B gzip JS, 3,007 B gzip CSS and 376,293 B precache in the local-only build. The browser suite checks offline navigation and zero external startup calls."
+    }
+  },
+  "findings": [
+    {
+      "id": "SV-UX-01",
+      "reviewer": "UI/UX Reviewer",
+      "severity": "Medium",
+      "feature": "Answer reveal",
+      "reference": "src/App.tsx:293",
+      "description": "Focus initially skipped directly to the grading controls after reveal.",
+      "evidence": "Reveal with the keyboard and check the focused answer region and following tab stop in @review.",
+      "fix": "Focus the labelled answer region and keep grades next in tab order.",
+      "status": "fixed"
+    },
+    {
+      "id": "SV-UX-02",
+      "reviewer": "UI/UX Reviewer",
+      "severity": "Low",
+      "feature": "Google Drive settings",
+      "reference": "src/VaultSettings.tsx:84",
+      "description": "Leaving Settings ends the current Drive connection. Returning requires reconnecting.",
+      "evidence": "Connect, visit another route and return. The connection state belongs to the Settings view.",
+      "fix": "The Settings copy explains session lifetime. Reassess whether to retain the token for the entire app session if reconnecting becomes a problem.",
+      "status": "open"
+    },
+    {
+      "id": "SV-UX-03",
+      "reviewer": "UI/UX Reviewer",
+      "severity": "Low",
+      "feature": "Flashcard editor",
+      "reference": "src/styles.css:102",
+      "description": "The original input border measured 2.88:1 against the editor panel.",
+      "evidence": "Compare #5d7060 with #1c2820 using the WCAG relative luminance calculation.",
+      "fix": "Use #697d6d for an approximately 3.45:1 border contrast.",
+      "status": "fixed"
+    },
+    {
+      "id": "SV-QA-001",
+      "reviewer": "QA Reviewer",
+      "severity": "Medium",
+      "feature": "Backup import and review",
+      "reference": "src/model.ts:27",
+      "description": "A card imported at the maximum review count could invalidate the vault when graded.",
+      "evidence": "Reproduced by importing a count of 999,999,999, grading and reading a snapshot. Regression in tests/unit/vault.test.ts.",
+      "fix": "Saturate the counter at the validation limit. Validate clock skew on import only.",
+      "status": "fixed"
+    },
+    {
+      "id": "SV-QA-003",
+      "reviewer": "QA Reviewer",
+      "severity": "Medium",
+      "feature": "Release gate",
+      "reference": "scripts/report.mjs:101",
+      "description": "Omitting a required browser test could leave the release eligible when the remaining checks passed.",
+      "evidence": "Independently reproduced with synthetic reports missing required tags. Regression in tests/unit/report.test.mjs.",
+      "fix": "Require the expected tags to appear with passing results.",
+      "status": "fixed"
+    },
+    {
+      "id": "SV-QA-004",
+      "reviewer": "QA Reviewer",
+      "severity": "High",
+      "feature": "Offline navigation",
+      "reference": "scripts/build-shell.mjs:25",
+      "description": "The Pages emulator redirected /index.html and Chrome rejected its cached response for a later navigation.",
+      "evidence": "The first Wrangler browser run returned net::ERR_FAILED for offline /library. The passing @offline regression now covers a deep link, writes, reloads and the offline privacy page.",
+      "fix": "Precache canonical Pages URLs and fail the cache install if an entry redirects.",
+      "status": "fixed"
+    },
+    {
+      "id": "SV-SEC-01",
+      "reviewer": "Security Reviewer",
+      "severity": "Medium",
+      "feature": "Drive upload retry",
+      "reference": "src/drive.ts:75",
+      "description": "A lost upload response could leave an uncertain create and cause a duplicate on retry.",
+      "evidence": "The Drive regression drops a create response and returns 409 when the same upload ID is replayed.",
+      "fix": "Back off and retry using the same pre-generated ID and multipart payload.",
+      "status": "fixed"
+    },
+    {
+      "id": "SV-SEC-02",
+      "reviewer": "Security Reviewer",
+      "severity": "High",
+      "feature": "Deployment credentials",
+      "reference": ".github/workflows/quality.yml:78",
+      "description": "Repository-wide Cloudflare credentials could be used by workflows on other writable branches.",
+      "evidence": "Independently found by Security and QA. An alternate workflow could invoke Wrangler with the repository token.",
+      "fix": "Use a separate deployment job, the same-run tested artifact and branch-restricted environment secrets.",
+      "status": "fixed"
+    },
+    {
+      "id": "SV-SEC-03",
+      "reviewer": "Security Reviewer",
+      "severity": "Medium",
+      "feature": "Quality evidence validation",
+      "reference": "scripts/report.mjs:113",
+      "description": "Invalid review evidence could be treated like absent evidence on preview.",
+      "evidence": "The gate regression distinguishes missing evidence from corrupt or invalid JSON values.",
+      "fix": "Allow absent initial evidence for preview and fail closed on malformed input.",
+      "status": "fixed"
+    },
+    {
+      "id": "SV-SEC-04",
+      "reviewer": "Security Reviewer",
+      "severity": "Critical",
+      "feature": "Development dependency audit",
+      "reference": "package.json",
+      "description": "The initial test tooling resolved critical Vitest and Tinypool audit entries.",
+      "evidence": "The initial npm audit reported two Critical entries. The updated tooling has zero High and Critical entries.",
+      "fix": "Upgrade Vite and Vitest and keep the full dependency audit in CI.",
+      "status": "fixed"
+    },
+    {
+      "id": "SV-SEC-05",
+      "reviewer": "Security Reviewer",
+      "severity": "Medium",
+      "feature": "Development lint tooling",
+      "reference": "package-lock.json",
+      "description": "The audit reports ten Moderate package entries associated with the minimatch glob amplification advisory.",
+      "evidence": "Run npm audit --json and inspect GHSA-g3hv-75wg-m249 and dependent entries. The affected packages are in the development lint tooling.",
+      "fix": "Upgrade affected tooling when its dependency ranges admit the patched minimatch major.",
+      "status": "open"
+    },
+    {
+      "id": "PERF-001",
+      "reviewer": "Performance Reviewer",
+      "severity": "Medium",
+      "feature": "Overview rendering",
+      "reference": "src/App.tsx:77",
+      "description": "Overview recalculated the card count by scanning the full list for every subject on render.",
+      "evidence": "In a representative 1,000-subject and 20,000-card fixture, the former loop required 20 million comparisons per render.",
+      "fix": "Group by subject in one memoized pass.",
+      "status": "fixed"
+    },
+    {
+      "id": "PERF-002",
+      "reviewer": "Performance Reviewer",
+      "severity": "Medium",
+      "feature": "Drive sync requests",
+      "reference": "src/drive.ts:159",
+      "description": "Repeated unchanged sync downloaded every full device snapshot.",
+      "evidence": "The Drive regression now verifies a second unchanged sync in the same connection only lists metadata.",
+      "fix": "Remember merged Drive file versions for the current connection. A fresh connection still reads the bounded remote backups.",
+      "status": "fixed"
+    }
+  ],
+  "install": {}
+}
